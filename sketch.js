@@ -165,6 +165,17 @@ function setupVirtualKeyboard() {
 
     virtualKeyboard = [];
     let index = 0;
+    
+    // Add backspace button first
+    virtualKeyboard.push({
+        letter: '⌫',
+        x: startX,
+        y: startY - keyHeight - 10,
+        width: keyWidth * 2,
+        height: keyHeight,
+        isBackspace: true
+    });
+
     for (let row = 0; row < rows; row++) {
         for (let col = 0; col < 9; col++) {
             if (index < letters.length) {
@@ -173,7 +184,8 @@ function setupVirtualKeyboard() {
                     x: startX + col * keyWidth,
                     y: startY + row * keyHeight,
                     width: keyWidth,
-                    height: keyHeight
+                    height: keyHeight,
+                    isBackspace: false
                 });
                 index++;
             }
@@ -185,13 +197,16 @@ function touchStarted() {
     if (gameOver) {
         if (enteringInitials && isMobile) {
             // Handle virtual keyboard input
-            const touchX = mouseX;
-            const touchY = mouseY;
+            const touchX = touches[0].x;
+            const touchY = touches[0].y;
             
+            // Check keyboard touches
             for (let key of virtualKeyboard) {
                 if (touchX >= key.x && touchX <= key.x + key.width &&
                     touchY >= key.y && touchY <= key.y + key.height) {
-                    if (playerInitials.length < maxInitialsLength) {
+                    if (key.isBackspace) {
+                        playerInitials = playerInitials.slice(0, -1);
+                    } else if (playerInitials.length < maxInitialsLength) {
                         playerInitials += key.letter;
                     }
                     return false;
@@ -213,8 +228,17 @@ function touchStarted() {
         }
     } else {
         // Move breasts to touch position
-        targetX = mouseX;
-        targetY = mouseY;
+        if (touches.length > 0) {
+            targetX = touches[0].x;
+            targetY = touches[0].y;
+        }
+    }
+    return false;
+}
+
+function touchEnded() {
+    if (gameOver && !enteringInitials) {
+        resetGame();
     }
     return false;
 }
@@ -285,7 +309,7 @@ function draw() {
             // Draw keyboard
             for (let key of virtualKeyboard) {
                 // Draw key background with shadow effect
-                fill(240);
+                fill(key.isBackspace ? 200 : 240);
                 stroke(180);
                 strokeWeight(2);
                 rect(key.x, key.y, key.width, key.height, 8);
@@ -293,7 +317,7 @@ function draw() {
                 // Draw letter
                 fill(0);
                 noStroke();
-                textSize(min(28, key.width * 0.8));
+                textSize(key.isBackspace ? min(32, key.width * 0.4) : min(28, key.width * 0.8));
                 textAlign(CENTER, CENTER);
                 text(key.letter, key.x + key.width/2, key.y + key.height/2);
             }
@@ -366,15 +390,15 @@ function keyPressed() {
 }
 
 function mousePressed() {
-    if (gameOver) {
-        if (enteringInitials) {
-            return; // Ignore clicks while entering initials
+    if (!isMobile) {  // Only handle mouse events on desktop
+        if (gameOver) {
+            if (!enteringInitials) {
+                resetGame();
+            }
+        } else {
+            targetX = mouseX;
+            targetY = mouseY;
         }
-        resetGame();
-    } else {
-        // Move breasts to mouse position
-        targetX = mouseX;
-        targetY = mouseY;
     }
 }
 
