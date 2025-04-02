@@ -14,6 +14,7 @@ let playerInitials = '';
 let maxInitialsLength = 3;
 let isMobile = false;
 let virtualKeyboard = [];
+let submitButton = null;
 
 function preload() {
     // Load the hand image from the local images folder
@@ -193,9 +194,9 @@ function touchStarted() {
             }
             
             // Check if submit button is pressed
-            const submitY = height/2 + 100;
-            if (touchX >= width/2 - 100 && touchX <= width/2 + 100 &&
-                touchY >= submitY && touchY <= submitY + 50) {
+            if (submitButton && 
+                touchX >= submitButton.x && touchX <= submitButton.x + submitButton.width &&
+                touchY >= submitButton.y && touchY <= submitButton.y + submitButton.height) {
                 if (playerInitials.length > 0) {
                     addHighScore(playerInitials, timeSurvived);
                     enteringInitials = false;
@@ -226,13 +227,13 @@ function draw() {
     if (!gameOver) {
         timeSurvived += 1/60; // Increment time in seconds
         
-        // Spawn new hand if enough time has passed
-        if (timeSurvived - lastHandSpawnTime >= handSpawnInterval) {
-            hands.push(new Hand());
-            lastHandSpawnTime = timeSurvived;
-            // Decrease spawn interval slightly to make game progressively harder
-            handSpawnInterval = max(2, handSpawnInterval - 0.2);
-        }
+        // Draw score and time with proper padding
+        fill(0);
+        textSize(24);
+        textAlign(LEFT, TOP);
+        let padding = isMobile ? 20 : 20; // Adjust padding based on device
+        text(`Time: ${timeSurvived.toFixed(1)}s`, padding, padding);
+        text(`Hands: ${hands.length}`, padding, padding + 30);
         
         // Update hands first
         for (let hand of hands) {
@@ -257,40 +258,79 @@ function draw() {
         for (let hand of hands) {
             hand.draw();
         }
-        
-        // Draw score and time
-        fill(0);
-        textSize(24);
-        textAlign(LEFT, TOP);
-        text(`Time Survived: ${timeSurvived.toFixed(1)}s`, 20, 20);
-        text(`Hands: ${hands.length}`, 20, 50);
     } else if (enteringInitials) {
         // Draw initials input screen
         fill(0);
         textSize(32);
         textAlign(CENTER, CENTER);
-        text("NEW HIGH SCORE!", width/2, height/2 - 150);
-        text("Enter Your Initials", width/2, height/2 - 100);
+        text("NEW HIGH SCORE!", width/2, height/3 - 50);
+        text("Enter Your Initials", width/2, height/3);
         textSize(48);
-        text(playerInitials + (frameCount % 60 < 30 ? "_" : ""), width/2, height/2);
+        text(playerInitials + (frameCount % 60 < 30 ? "_" : ""), width/2, height/3 + 50);
         
         if (isMobile) {
-            // Draw virtual keyboard
+            // Draw virtual keyboard with larger buttons
+            const keyboardWidth = min(width * 0.9, 600); // Limit max width
+            const keyWidth = keyboardWidth / 9;
+            const keyHeight = keyWidth * 1.2; // Make buttons slightly taller
+            const startX = (width - keyboardWidth) / 2;
+            const startY = height/2;
+            
+            let index = 0;
+            const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            
+            // Update keyboard layout
+            virtualKeyboard = [];
+            for (let row = 0; row < 3; row++) {
+                for (let col = 0; col < 9; col++) {
+                    if (index < letters.length) {
+                        virtualKeyboard.push({
+                            letter: letters[index],
+                            x: startX + col * keyWidth,
+                            y: startY + row * keyHeight,
+                            width: keyWidth,
+                            height: keyHeight
+                        });
+                        index++;
+                    }
+                }
+            }
+            
+            // Draw keyboard
             for (let key of virtualKeyboard) {
-                fill(200);
-                rect(key.x, key.y, key.width, key.height);
+                // Draw key background
+                fill(220);
+                stroke(180);
+                rect(key.x, key.y, key.width, key.height, 5);
+                
+                // Draw letter
                 fill(0);
-                textSize(24);
+                noStroke();
+                textSize(min(24, keyWidth * 0.8));
                 textAlign(CENTER, CENTER);
                 text(key.letter, key.x + key.width/2, key.y + key.height/2);
             }
             
             // Draw submit button
+            const submitButtonWidth = min(200, width * 0.4);
+            const submitButtonHeight = 60;
+            const submitButtonX = width/2 - submitButtonWidth/2;
+            const submitButtonY = height - submitButtonHeight - 20;
+            
             fill(0, 200, 0);
-            rect(width/2 - 100, height/2 + 100, 200, 50);
+            noStroke();
+            rect(submitButtonX, submitButtonY, submitButtonWidth, submitButtonHeight, 10);
             fill(255);
             textSize(24);
-            text("SUBMIT", width/2, height/2 + 125);
+            text("SUBMIT", width/2, submitButtonY + submitButtonHeight/2);
+            
+            // Update submit button hitbox
+            submitButton = {
+                x: submitButtonX,
+                y: submitButtonY,
+                width: submitButtonWidth,
+                height: submitButtonHeight
+            };
         } else {
             textSize(24);
             text("Press ENTER when done", width/2, height/2 + 50);
