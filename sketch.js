@@ -227,11 +227,19 @@ function draw() {
     if (!gameOver) {
         timeSurvived += 1/60; // Increment time in seconds
         
+        // Spawn new hand if enough time has passed
+        if (timeSurvived - lastHandSpawnTime >= handSpawnInterval) {
+            hands.push(new Hand());
+            lastHandSpawnTime = timeSurvived;
+            // Decrease spawn interval slightly to make game progressively harder
+            handSpawnInterval = max(2, handSpawnInterval - 0.2);
+        }
+        
         // Draw score and time with proper padding
         fill(0);
         textSize(24);
         textAlign(LEFT, TOP);
-        let padding = isMobile ? 20 : 20; // Adjust padding based on device
+        let padding = isMobile ? 40 : 20; // More padding on mobile
         text(`Time: ${timeSurvived.toFixed(1)}s`, padding, padding);
         text(`Hands: ${hands.length}`, padding, padding + 30);
         
@@ -298,15 +306,16 @@ function draw() {
             
             // Draw keyboard
             for (let key of virtualKeyboard) {
-                // Draw key background
-                fill(220);
+                // Draw key background with shadow effect
+                fill(240);
                 stroke(180);
-                rect(key.x, key.y, key.width, key.height, 5);
+                strokeWeight(2);
+                rect(key.x, key.y, key.width, key.height, 8);
                 
                 // Draw letter
                 fill(0);
                 noStroke();
-                textSize(min(24, keyWidth * 0.8));
+                textSize(min(28, keyWidth * 0.8));
                 textAlign(CENTER, CENTER);
                 text(key.letter, key.x + key.width/2, key.y + key.height/2);
             }
@@ -315,13 +324,18 @@ function draw() {
             const submitButtonWidth = min(200, width * 0.4);
             const submitButtonHeight = 60;
             const submitButtonX = width/2 - submitButtonWidth/2;
-            const submitButtonY = height - submitButtonHeight - 20;
+            const submitButtonY = height - submitButtonHeight - 40;
             
-            fill(0, 200, 0);
+            // Draw button shadow
+            fill(0, 150, 0);
             noStroke();
+            rect(submitButtonX + 2, submitButtonY + 2, submitButtonWidth, submitButtonHeight, 10);
+            
+            // Draw button
+            fill(0, 200, 0);
             rect(submitButtonX, submitButtonY, submitButtonWidth, submitButtonHeight, 10);
             fill(255);
-            textSize(24);
+            textSize(28);
             text("SUBMIT", width/2, submitButtonY + submitButtonHeight/2);
             
             // Update submit button hitbox
