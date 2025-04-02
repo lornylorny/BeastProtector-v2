@@ -15,7 +15,7 @@ let maxInitialsLength = 3;
 let isMobile = false;
 let virtualKeyboard = [];
 let submitButton = null;
-let gameStartDelay = 2; // 2 second delay before game starts
+let gameStartDelay = 5; // Increased to 5 seconds
 let gameStartTime = 0;
 
 function preload() {
@@ -56,8 +56,30 @@ function addHighScore(initials, time) {
 
 class Hand {
     constructor() {
-        this.x = random(width);
-        this.y = random(height);
+        // Minimum safe distance from breasts (in pixels)
+        const minSafeDistance = 200;
+        
+        // Try to find a safe spawn position
+        let attempts = 0;
+        let safePosition = false;
+        
+        while (!safePosition && attempts < 50) {
+            this.x = random(width);
+            this.y = random(height);
+            
+            // Calculate distance from both breasts
+            let distanceLeft = dist(this.x, this.y, targetX - targetSize/3, targetY);
+            let distanceRight = dist(this.x, this.y, targetX + targetSize/3, targetY);
+            
+            // Check if position is safe
+            if (distanceLeft > minSafeDistance && distanceRight > minSafeDistance) {
+                safePosition = true;
+            }
+            
+            attempts++;
+        }
+        
+        // If we couldn't find a safe position after 50 attempts, just use the last position
         this.speedX = random(-3, 3);
         this.speedY = random(-3, 3);
         this.size = random(30, 50);
@@ -265,16 +287,18 @@ function draw() {
     if (timeRemaining > 0) {
         // Show instructions
         fill(0);
-        textSize(32);
+        textSize(40); // Increased from 32
         textAlign(CENTER, CENTER);
-        text("Protect the breasts from groping hands!", width/2, height/2 - 50);
-        textSize(24);
-        text("Game starts in " + ceil(timeRemaining) + "...", width/2, height/2 + 20);
+        text("PROTECT THE BREASTS!", width/2, height/2 - 100);
+        textSize(32); // Increased from 24
+        text("Game starts in " + ceil(timeRemaining) + "...", width/2, height/2 - 20);
         if (isMobile) {
-            text("Touch to move", width/2, height/2 + 60);
+            text("TOUCH to move", width/2, height/2 + 40);
         } else {
-            text("Click to move", width/2, height/2 + 60);
+            text("CLICK to move", width/2, height/2 + 40);
         }
+        textSize(24);
+        text("Avoid the groping hands!", width/2, height/2 + 100);
         return;
     }
     
