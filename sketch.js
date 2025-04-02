@@ -17,25 +17,45 @@ let virtualKeyboard = [];
 let submitButton = null;
 let gameStartDelay = 5; // Increased to 5 seconds
 let gameStartTime = 0;
+let highScoresLoaded = false;
 
 function preload() {
     // Load the hand image from the local images folder
     handImage = loadImage('images/hand.png');
 }
 
-// Load high scores from localStorage
-function loadHighScores() {
-    let savedScores = localStorage.getItem('highScores');
-    if (savedScores) {
-        highScores = JSON.parse(savedScores);
-    } else {
-        highScores = [];
+// Load high scores from file
+async function loadHighScores() {
+    try {
+        const response = await fetch('highscores.php');
+        if (response.ok) {
+            const text = await response.text();
+            if (text.trim()) {
+                highScores = JSON.parse(text);
+            }
+        }
+    } catch (error) {
+        console.log('No high scores file found, starting fresh');
     }
+    highScoresLoaded = true;
 }
 
-// Save high scores to localStorage
-function saveHighScores() {
-    localStorage.setItem('highScores', JSON.stringify(highScores));
+// Save high scores to file
+async function saveHighScores() {
+    try {
+        const response = await fetch('highscores.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/plain',
+            },
+            body: JSON.stringify(highScores)
+        });
+        if (!response.ok) {
+            console.error('Failed to save high scores');
+        }
+    } catch (error) {
+        console.error('Error saving high scores:', error);
+    }
 }
 
 // Check if score qualifies for high score table
