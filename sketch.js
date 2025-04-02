@@ -176,8 +176,14 @@ function setup() {
         setupVirtualKeyboard();
     }
     
-    // Set game start time
+    // Set game start time and reset game state
     gameStartTime = millis() / 1000;
+    gameOver = false;
+    enteringInitials = false;
+    timeSurvived = 0;
+    score = 0;
+    lastHandSpawnTime = 0;
+    handSpawnInterval = 5;
 }
 
 function setupVirtualKeyboard() {
@@ -287,10 +293,10 @@ function draw() {
     if (timeRemaining > 0) {
         // Show instructions
         fill(0);
-        textSize(40); // Increased from 32
+        textSize(40);
         textAlign(CENTER, CENTER);
         text("PROTECT THE BREASTS!", width/2, height/2 - 100);
-        textSize(32); // Increased from 24
+        textSize(32);
         text("Game starts in " + ceil(timeRemaining) + "...", width/2, height/2 - 20);
         if (isMobile) {
             text("TOUCH to move", width/2, height/2 + 40);
