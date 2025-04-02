@@ -148,29 +148,34 @@ function setup() {
     }
 
     // Initialize virtual keyboard
-    setupVirtualKeyboard();
+    if (isMobile) {
+        setupVirtualKeyboard();
+    }
 }
 
 function setupVirtualKeyboard() {
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const rows = 3;
     const cols = 9;
-    const keyWidth = width / cols;
-    const keyHeight = 50;
-    const startY = height - (keyHeight * rows) - 20;
+    const keyboardWidth = min(width * 0.9, 600); // Limit max width
+    const keyWidth = keyboardWidth / cols;
+    const keyHeight = keyWidth * 1.2; // Make buttons slightly taller
+    const startX = (width - keyboardWidth) / 2;
+    const startY = height/2;
 
     virtualKeyboard = [];
-    for (let i = 0; i < rows; i++) {
-        for (let j = 0; j < cols; j++) {
-            const index = i * cols + j;
+    let index = 0;
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < 9; col++) {
             if (index < letters.length) {
                 virtualKeyboard.push({
                     letter: letters[index],
-                    x: j * keyWidth,
-                    y: startY + (i * keyHeight),
+                    x: startX + col * keyWidth,
+                    y: startY + row * keyHeight,
                     width: keyWidth,
                     height: keyHeight
                 });
+                index++;
             }
         }
     }
@@ -217,7 +222,7 @@ function touchStarted() {
 function windowResized() {
     if (isMobile) {
         resizeCanvas(windowWidth, windowHeight);
-        setupVirtualKeyboard();
+        setupVirtualKeyboard(); // Recalculate keyboard layout on resize
     }
 }
 
@@ -277,33 +282,6 @@ function draw() {
         text(playerInitials + (frameCount % 60 < 30 ? "_" : ""), width/2, height/3 + 50);
         
         if (isMobile) {
-            // Draw virtual keyboard with larger buttons
-            const keyboardWidth = min(width * 0.9, 600); // Limit max width
-            const keyWidth = keyboardWidth / 9;
-            const keyHeight = keyWidth * 1.2; // Make buttons slightly taller
-            const startX = (width - keyboardWidth) / 2;
-            const startY = height/2;
-            
-            let index = 0;
-            const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-            
-            // Update keyboard layout
-            virtualKeyboard = [];
-            for (let row = 0; row < 3; row++) {
-                for (let col = 0; col < 9; col++) {
-                    if (index < letters.length) {
-                        virtualKeyboard.push({
-                            letter: letters[index],
-                            x: startX + col * keyWidth,
-                            y: startY + row * keyHeight,
-                            width: keyWidth,
-                            height: keyHeight
-                        });
-                        index++;
-                    }
-                }
-            }
-            
             // Draw keyboard
             for (let key of virtualKeyboard) {
                 // Draw key background with shadow effect
@@ -315,7 +293,7 @@ function draw() {
                 // Draw letter
                 fill(0);
                 noStroke();
-                textSize(min(28, keyWidth * 0.8));
+                textSize(min(28, key.width * 0.8));
                 textAlign(CENTER, CENTER);
                 text(key.letter, key.x + key.width/2, key.y + key.height/2);
             }
