@@ -15,6 +15,8 @@ let maxInitialsLength = 3;
 let isMobile = false;
 let virtualKeyboard = [];
 let submitButton = null;
+let gameStartDelay = 2; // 2 second delay before game starts
+let gameStartTime = 0;
 
 function preload() {
     // Load the hand image from the local images folder
@@ -151,6 +153,9 @@ function setup() {
     if (isMobile) {
         setupVirtualKeyboard();
     }
+    
+    // Set game start time
+    gameStartTime = millis() / 1000;
 }
 
 function setupVirtualKeyboard() {
@@ -252,6 +257,26 @@ function windowResized() {
 
 function draw() {
     background(240);
+    
+    // Check if game should start
+    let currentTime = millis() / 1000;
+    let timeRemaining = gameStartDelay - (currentTime - gameStartTime);
+    
+    if (timeRemaining > 0) {
+        // Show instructions
+        fill(0);
+        textSize(32);
+        textAlign(CENTER, CENTER);
+        text("Protect the breasts from groping hands!", width/2, height/2 - 50);
+        textSize(24);
+        text("Game starts in " + ceil(timeRemaining) + "...", width/2, height/2 + 20);
+        if (isMobile) {
+            text("Touch to move", width/2, height/2 + 60);
+        } else {
+            text("Click to move", width/2, height/2 + 60);
+        }
+        return;
+    }
     
     if (!gameOver) {
         timeSurvived += 1/60; // Increment time in seconds
@@ -410,6 +435,7 @@ function resetGame() {
     hands = [];
     lastHandSpawnTime = 0;
     handSpawnInterval = 5;
+    gameStartTime = millis() / 1000; // Reset game start time
     for (let i = 0; i < 5; i++) {
         hands.push(new Hand());
     }
