@@ -105,12 +105,20 @@ class Hand {
         this.size = random(30, 50);
         this.rotation = random(TWO_PI);
         this.rotationSpeed = random(-0.02, 0.02);
+        
+        // New properties for finger wiggling
+        this.wiggleOffset = random(TWO_PI); // Random starting point for wiggle
+        this.wiggleSpeed = random(0.05, 0.15); // Speed of finger wiggling
+        this.wiggleAmount = random(0.2, 0.4); // How much the fingers wiggle
     }
 
     update() {
         this.x += this.speedX;
         this.y += this.speedY;
         this.rotation += this.rotationSpeed;
+
+        // Update wiggle animation
+        this.wiggleOffset += this.wiggleSpeed;
 
         // Bounce off edges
         if (this.x < 0 || this.x > width) this.speedX *= -1;
@@ -159,7 +167,13 @@ class Hand {
     draw() {
         push();
         translate(this.x, this.y);
+        
+        // Apply base rotation
         rotate(this.rotation);
+        
+        // Apply finger wiggling
+        let wiggleAngle = sin(this.wiggleOffset) * this.wiggleAmount;
+        rotate(wiggleAngle);
         
         // Draw hand image with transparent white background
         imageMode(CENTER);
