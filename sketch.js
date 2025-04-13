@@ -9,69 +9,216 @@ let handImage;
 let lastHandSpawnTime = 0;
 let handSpawnInterval = 5; // Spawn a new hand every 5 seconds
 let highScores = [];
-let enteringInitials = false;
-let playerInitials = '';
-let maxInitialsLength = 3;
+let enteringName = false;
+let showingLeaderboard = false; // New state for leaderboard screen
+let playerName = '';
+let maxNameLength = 10;
 let isMobile = false;
 let virtualKeyboard = [];
 let submitButton = null;
+let playAgainButton = null; // New button for play again
 let gameStartDelay = 5; // Increased to 5 seconds
 let gameStartTime = 0;
 let highScoresLoaded = false;
+let nameValidationMessage = '';
+let nameValidationColor;
+let loginMessage = '';
+let loginMessageColor;
+let namePreviewTimeout = null;
+let gameStarted = false;
+let playButton = null;
+
+// Login state variables
+let showLoginScreen = true;
+let isLoggedIn = false;
+let loginEmail = '';
+let loginPassword = '';
+let isRegistering = false;
 
 function preload() {
     // Load the hand image from the local images folder
     handImage = loadImage('images/hand.png');
 }
 
-// Load high scores from file
+// Load high scores from Supabase
 async function loadHighScores() {
     try {
-        const response = await fetch('highscores.php');
-        if (response.ok) {
-            const text = await response.text();
-            if (text.trim()) {
-                highScores = JSON.parse(text);
-            }
+        const { data, error } = await window.supabase
+            .from('leaderboard')
+            .select('user_id, high_score, last_updated, player_name, game_id')
+            .eq('game_id', 'breast_protector')
+            .order('high_score', { ascending: false })
+            .limit(10);
+
+        if (error) {
+            console.log('Error loading high scores:', error);
+            return;
         }
+
+        highScores = data.map(score => ({
+            score: score.high_score / 10, // Convert back to float
+            name: score.player_name,
+            date: new Date(score.last_updated)
+        }));
+
+        console.log('Loaded high scores:', highScores);
     } catch (error) {
-        console.log('No high scores file found, starting fresh');
+        console.error('Error loading high scores:', error);
     }
-    highScoresLoaded = true;
 }
 
-// Save high scores to file
-async function saveHighScores() {
+// Save high score to Supabase
+async function saveHighScore(name, score) {
     try {
-        const response = await fetch('highscores.php', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'text/plain',
-            },
-            body: JSON.stringify(highScores)
-        });
-        if (!response.ok) {
-            console.error('Failed to save high scores');
+        const { data: { session } } = await window.supabase.auth.getSession();
+        if (!session) {
+            return { success: false, reason: 'Must be logged in to save high score' };
+        }
+
+        // Convert score to integer (multiply by 10 to keep one decimal place)
+        const intScore = Math.round(score * 10);
+
+        try {
+            // First get user's current top 3 scores
+            const { data: existingScores, error: fetchError } = await window.supabase
+                .from('leaderboard')
+                .select('*')
+                .eq('user_id', session.user.id)
+                .eq('game_id', 'breast_protector')
+                .order('high_score', { ascending: false })
+                .limit(3);
+
+            if (fetchError) {
+                console.log('Error checking existing scores:', fetchError);
+                throw fetchError;
+            }
+
+            // Get the latest active payment if available
+            const { data: payments, error: paymentError } = await window.supabase
+                .from('payments')
+                .select('id')
+                .eq('user_id', session.user.id)
+                .gt('plays_remaining', 0)
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            if (paymentError) {
+                console.log('Error checking payment:', paymentError);
+            }
+
+            const payment = payments && payments.length > 0 ? payments[0] : null;
+
+            const scoreData = {
+                user_id: session.user.id,
+                game_id: 'breast_protector',
+                player_name: name,
+                high_score: intScore,
+                last_updated: new Date().toISOString(),
+                payment_id: payment?.id || null
+            };
+
+            console.log('Attempting to save score with data:', scoreData);
+
+            let result;
+            if (existingScores && existingScores.length >= 3) {
+                // If user has 3 scores, check if new score beats the lowest
+                const lowestScore = existingScores[existingScores.length - 1].high_score;
+                if (intScore <= lowestScore) {
+                    return { success: false, reason: 'Score not high enough to beat your previous record!' };
+                }
+                
+                // Delete the lowest score first
+                const { error: deleteError } = await window.supabase
+                    .from('leaderboard')
+                    .delete()
+                    .eq('id', existingScores[existingScores.length - 1].id);
+
+                if (deleteError) {
+                    console.log('Error deleting lowest score:', deleteError);
+                    throw deleteError;
+                }
+            }
+
+            // Insert new score
+            const { data, error: insertError } = await window.supabase
+                .from('leaderboard')
+                .insert([scoreData]);
+
+            if (insertError) {
+                console.log('Error inserting new score:', insertError);
+                throw insertError;
+            }
+
+            result = { data, error: null };
+
+            if (result.error) {
+                console.log('Error saving score:', result.error);
+                throw result.error;
+            }
+            console.log('Score saved successfully:', result.data);
+
+            // Reload high scores after successful save
+            await loadHighScores();
+
+            return { success: true, reason: '' };
+        } catch (dbError) {
+            console.error('Database operation failed:', dbError);
+            throw dbError;
         }
     } catch (error) {
-        console.error('Error saving high scores:', error);
+        console.error('Error saving high score:', error.message);
+        return { success: false, reason: 'Failed to save score: ' + error.message };
     }
 }
 
-// Check if score qualifies for high score table
-function checkHighScore(time) {
-    if (highScores.length < 5) return true;
-    return time > highScores[highScores.length - 1].time;
+// Check if score qualifies for user's top 3 scores
+async function checkHighScore(time) {
+    try {
+        const { data: { session } } = await window.supabase.auth.getSession();
+        if (!session) return false;
+
+        // Get user's current scores
+        const { data: userScores, error } = await window.supabase
+            .from('leaderboard')
+            .select('high_score')
+            .eq('user_id', session.user.id)
+            .eq('game_id', 'breast_protector')
+            .order('high_score', { ascending: false })
+            .limit(3);
+
+        if (error) {
+            console.error('Error checking user scores:', error);
+            return false;
+        }
+
+        // If user has less than 3 scores, this score qualifies
+        if (!userScores || userScores.length < 3) {
+            console.log('User has less than 3 scores, new score qualifies');
+            return true;
+        }
+
+        // Convert time to integer (multiply by 10 to keep one decimal place)
+        const intTime = Math.round(time * 10);
+        
+        // Check if this score beats their lowest top 3 score
+        const lowestScore = userScores[userScores.length - 1].high_score;
+        const isHighScore = intTime > lowestScore;
+        console.log(`Comparing new score ${intTime} with lowest score ${lowestScore}: ${isHighScore}`);
+        return isHighScore;
+    } catch (error) {
+        console.error('Error in checkHighScore:', error);
+        return false;
+    }
 }
 
-// Add new high score
-function addHighScore(initials, time) {
-    highScores.push({ initials: initials, time: time });
-    highScores.sort((a, b) => b.time - a.time);
-    if (highScores.length > 5) {
-        highScores = highScores.slice(0, 5);
+// Update addHighScore function to use Supabase directly
+async function addHighScore(name, time) {
+    const result = await saveHighScore(name, time);
+    if (result.success) {
+        await loadHighScores();
+    } else {
+        console.error('Failed to save high score:', result.reason);
     }
-    saveHighScores();
 }
 
 class Hand {
@@ -125,40 +272,28 @@ class Hand {
         if (this.y < 0 || this.y > height) this.speedY *= -1;
         
         // Check collision with breasts
-        if (!gameOver && !enteringInitials) {
+        if (!gameOver && !enteringName) {
             // Calculate the actual collision radius based on hand size
             let collisionRadius = this.size;
             
             // Check collision with left breast
             let distanceLeft = dist(this.x, this.y, targetX - targetSize/3, targetY);
             if (distanceLeft < (collisionRadius + targetSize/2)) {
-                gameOver = true;
-                if (checkHighScore(timeSurvived)) {
-                    enteringInitials = true;
-                    playerInitials = '';
-                }
+                handleGameOver();
                 return;
             }
             
             // Check collision with right breast
             let distanceRight = dist(this.x, this.y, targetX + targetSize/3, targetY);
             if (distanceRight < (collisionRadius + targetSize/2)) {
-                gameOver = true;
-                if (checkHighScore(timeSurvived)) {
-                    enteringInitials = true;
-                    playerInitials = '';
-                }
+                handleGameOver();
                 return;
             }
             
             // Additional check for the space between breasts
             let distanceCenter = dist(this.x, this.y, targetX, targetY);
             if (distanceCenter < (collisionRadius + targetSize/3)) {
-                gameOver = true;
-                if (checkHighScore(timeSurvived)) {
-                    enteringInitials = true;
-                    playerInitials = '';
-                }
+                handleGameOver();
                 return;
             }
         }
@@ -184,7 +319,23 @@ class Hand {
     }
 }
 
-function setup() {
+async function setup() {
+    // Wait for Supabase to be initialized
+    let attempts = 0;
+    while (!window.supabase && attempts < 10) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+    }
+    
+    if (!window.supabase) {
+        console.error('Failed to initialize Supabase');
+        return;
+    }
+    
+    // Initialize p5.js color variables first
+    nameValidationColor = color(0); // Default black
+    loginMessageColor = color(0); // Default black
+    
     // Check if device is mobile
     isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     
@@ -196,9 +347,21 @@ function setup() {
         canvas = createCanvas(800, 600);
     }
     
-    // Initialize target position
+    // Check authentication
+    try {
+        const { data: { session } } = await window.supabase.auth.getSession();
+        if (session) {
+            showLoginScreen = false;
+            isLoggedIn = true;
+            loginEmail = session.user.email;
+        }
+    } catch (error) {
+        console.error('Auth check failed:', error);
+    }
+    
+    // Initialize game components
     moveTarget();
-    loadHighScores();
+    await loadHighScores();
     
     // Create initial hands
     for (let i = 0; i < 5; i++) {
@@ -210,14 +373,10 @@ function setup() {
         setupVirtualKeyboard();
     }
     
-    // Set game start time and reset game state
-    gameStartTime = millis() / 1000;
+    // Set initial state to show instructions
+    showingLeaderboard = false;
     gameOver = false;
-    enteringInitials = false;
-    timeSurvived = 0;
-    score = 0;
-    lastHandSpawnTime = 0;
-    handSpawnInterval = 5;
+    enteringName = false;
 }
 
 function setupVirtualKeyboard() {
@@ -261,8 +420,28 @@ function setupVirtualKeyboard() {
 }
 
 function touchStarted() {
+    if (showingLeaderboard) {
+        // Check if play again button is pressed
+        if (playAgainButton && 
+            touches[0].x >= playAgainButton.x && 
+            touches[0].x <= playAgainButton.x + playAgainButton.width &&
+            touches[0].y >= playAgainButton.y && 
+            touches[0].y <= playAgainButton.y + playAgainButton.height) {
+            showingLeaderboard = false;
+            resetGame();
+        }
+        return false;
+    }
+
+    if (!gameStarted) {
+        // Start the game on first touch
+        gameStarted = true;
+        resetGame();
+        return false;
+    }
+
     if (gameOver) {
-        if (enteringInitials && isMobile) {
+        if (enteringName && isMobile) {
             // Handle virtual keyboard input
             const touchX = touches[0].x;
             const touchY = touches[0].y;
@@ -272,9 +451,17 @@ function touchStarted() {
                 if (touchX >= key.x && touchX <= key.x + key.width &&
                     touchY >= key.y && touchY <= key.y + key.height) {
                     if (key.isBackspace) {
-                        playerInitials = playerInitials.slice(0, -1);
-                    } else if (playerInitials.length < maxInitialsLength) {
-                        playerInitials += key.letter;
+                        playerName = playerName.slice(0, -1);
+                        if (playerName.length > 0) {
+                            validateAndPreviewName(playerName);
+                        } else {
+                            nameValidationMessage = '';
+                            nameValidationColor = color(0);
+                        }
+                    } else if (playerName.length < maxNameLength) {
+                        const newName = playerName + key.letter;
+                        validateAndPreviewName(newName);
+                        playerName = newName;
                     }
                     return false;
                 }
@@ -284,9 +471,17 @@ function touchStarted() {
             if (submitButton && 
                 touchX >= submitButton.x && touchX <= submitButton.x + submitButton.width &&
                 touchY >= submitButton.y && touchY <= submitButton.y + submitButton.height) {
-                if (playerInitials.length > 0) {
-                    addHighScore(playerInitials, timeSurvived);
-                    enteringInitials = false;
+                if (playerName.length > 0 && validateAndPreviewName(playerName)) {
+                    saveHighScore(playerName, timeSurvived).then(result => {
+                        if (result.success) {
+                            loadHighScores();
+                            enteringName = false;
+                            showingLeaderboard = true; // Show leaderboard instead of resetting
+                        } else {
+                            nameValidationMessage = result.reason;
+                            nameValidationColor = color(255, 0, 0);
+                        }
+                    });
                 }
                 return false;
             }
@@ -304,7 +499,7 @@ function touchStarted() {
 }
 
 function touchEnded() {
-    if (gameOver && !enteringInitials) {
+    if (gameOver && !enteringName) {
         resetGame();
     }
     return false;
@@ -317,32 +512,169 @@ function windowResized() {
     }
 }
 
+// Update the login status display function
+function drawLoginStatus() {
+    if (isLoggedIn && loginEmail) {
+        push(); // Save current drawing state
+        fill(180); // Very light grey
+        textSize(8); // Tiny text
+        textAlign(RIGHT, BOTTOM);
+        text(loginEmail, width - 5, height - 2);
+        pop(); // Restore drawing state
+    }
+}
+
 function draw() {
     background(240);
     
-    // Check if game should start
-    let currentTime = millis() / 1000;
-    let timeRemaining = gameStartDelay - (currentTime - gameStartTime);
-    
-    if (timeRemaining > 0) {
-        // Show instructions
+    if (showingLeaderboard) {
+        // Leaderboard screen
+        background(255);
+        
+        // Draw title with shadow effect
+        textAlign(CENTER, CENTER);
+        textSize(52);
+        fill(220);
+        text('HIGH SCORES', width/2 + 2, height/6 + 2); // Shadow
+        fill(0);
+        text('HIGH SCORES', width/2, height/6); // Main text
+        
+        // Display top 10 scores with improved spacing and formatting
+        textSize(32);
+        for (let i = 0; i < highScores.length; i++) {
+            const score = highScores[i];
+            const yPos = height/4 + (i * 50); // Increased spacing between scores
+            
+            // Background highlight for player's row
+            if (score.name === playerName) {
+                fill(240, 240, 200); // Light yellow highlight
+                noStroke();
+                rect(width/4, yPos - 20, width/2, 40, 10);
+            }
+            
+            // Color coding for top 3
+            fill(i === 0 ? color(255, 215, 0) : // Gold for 1st
+                 i === 1 ? color(192, 192, 192) : // Silver for 2nd
+                 i === 2 ? color(205, 127, 50) : // Bronze for 3rd
+                 color(80)); // Darker grey for others
+            
+            // Format the date
+            const dateStr = score.date.toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+            
+            // Format rank with padding for single digits
+            const rankStr = `${i + 1}.`.padStart(3, ' ');
+            // Format score with fixed decimal and padding
+            const scoreStr = score.score.toFixed(1).padStart(5, ' ');
+            
+            // Draw the score entry with improved alignment
+            textAlign(RIGHT, CENTER);
+            text(rankStr, width/2 - 150, yPos);
+            textAlign(LEFT, CENTER);
+            text(score.name, width/2 - 130, yPos);
+            textAlign(RIGHT, CENTER);
+            text(`${scoreStr}s`, width/2 + 100, yPos);
+            textSize(20);
+            fill(120); // Grey for date
+            text(dateStr, width/2 + 250, yPos);
+            textSize(32); // Reset text size
+        }
+        
+        // Play Again button with improved styling
+        const buttonWidth = 220;
+        const buttonHeight = 70;
+        const buttonX = width/2 - buttonWidth/2;
+        const buttonY = height - 120;
+        
+        // Check if mouse is over the button
+        const isOverButton = mouseX > buttonX && 
+                            mouseX < buttonX + buttonWidth && 
+                            mouseY > buttonY && 
+                            mouseY < buttonY + buttonHeight;
+        
+        // Draw button shadow
+        noStroke();
+        fill(100, 200, 100, 50);
+        rect(buttonX + 4, buttonY + 4, buttonWidth, buttonHeight, 15);
+        
+        // Draw button
+        fill(isOverButton ? color(100, 200, 100) : color(120, 220, 120));
+        rect(buttonX, buttonY, buttonWidth, buttonHeight, 15);
+        
+        // Draw button text with shadow
+        textSize(32);
+        textAlign(CENTER, CENTER);
+        
+        // Text shadow
+        fill(0, 0, 0, 30);
+        text('PLAY AGAIN', width/2 + 2, buttonY + buttonHeight/2 + 2);
+        
+        // Main text
+        fill(255);
+        text('PLAY AGAIN', width/2, buttonY + buttonHeight/2);
+        
+        // Store button position for click detection
+        playAgainButton = {
+            x: buttonX,
+            y: buttonY,
+            width: buttonWidth,
+            height: buttonHeight
+        };
+    } else if (showLoginScreen) {
+        drawLoginScreen();
+    } else if (!gameStarted) {
+        // Show instructions screen
+        background(255);
         fill(0);
         textSize(40);
         textAlign(CENTER, CENTER);
         text("PROTECT THE BREASTS!", width/2, height/2 - 100);
         textSize(32);
-        text("Game starts in " + ceil(timeRemaining) + "...", width/2, height/2 - 20);
+        text("Avoid the groping hands!", width/2, height/2 - 20);
         if (isMobile) {
             text("TOUCH to move", width/2, height/2 + 40);
         } else {
             text("CLICK to move", width/2, height/2 + 40);
         }
-        textSize(24);
-        text("Avoid the groping hands!", width/2, height/2 + 100);
-        return;
-    }
-    
-    if (!gameOver) {
+        
+        // Draw PLAY button with improved styling
+        const buttonWidth = 220;
+        const buttonHeight = 70;
+        const buttonX = width/2 - buttonWidth/2;
+        const buttonY = height/2 + 100;
+        
+        // Check if mouse is over the button
+        const isOverButton = mouseX > buttonX && 
+                            mouseX < buttonX + buttonWidth && 
+                            mouseY > buttonY && 
+                            mouseY < buttonY + buttonHeight;
+        
+        // Draw button with shadow and hover effect
+        fill(200);
+        noStroke();
+        rect(buttonX + 4, buttonY + 4, buttonWidth, buttonHeight, 15); // Shadow
+        fill(isOverButton ? color(100, 200, 100) : color(120, 220, 120));
+        rect(buttonX, buttonY, buttonWidth, buttonHeight, 15); // Button
+        
+        // Button text with shadow
+        fill(50);
+        textSize(36);
+        text('PLAY', width/2 + 1, buttonY + buttonHeight/2 + 1);
+        fill(255);
+        text('PLAY', width/2, buttonY + buttonHeight/2);
+        
+        // Store button position for click detection
+        playButton = {
+            x: buttonX,
+            y: buttonY,
+            width: buttonWidth,
+            height: buttonHeight
+        };
+    } else if (!gameOver && !enteringName) {
+        // Main game screen
         timeSurvived += 1/60; // Increment time in seconds
         
         // Spawn new hand if enough time has passed
@@ -384,15 +716,25 @@ function draw() {
         for (let hand of hands) {
             hand.draw();
         }
-    } else if (enteringInitials) {
-        // Draw initials input screen
+    } else if (enteringName) {
+        // Draw name input screen
+        drawLoginStatus(); // Add login status to name input screen
         fill(0);
         textSize(32);
         textAlign(CENTER, CENTER);
-        text("NEW HIGH SCORE!", width/2, height/3 - 50);
-        text("Enter Your Initials", width/2, height/3);
+        text("NEW TOP 3 SCORE!", width/2, height/3 - 50);
+        text("Enter Your Name", width/2, height/3);
+        
+        // Draw name preview with validation feedback
         textSize(48);
-        text(playerInitials + (frameCount % 60 < 30 ? "_" : ""), width/2, height/3 + 50);
+        fill(nameValidationColor);
+        text(playerName + (frameCount % 60 < 30 ? "_" : ""), width/2, height/3 + 50);
+        
+        // Show validation message if any
+        if (nameValidationMessage) {
+            textSize(24);
+            text(nameValidationMessage, width/2, height/3 + 100);
+        }
         
         if (isMobile) {
             // Draw keyboard
@@ -417,19 +759,12 @@ function draw() {
             const submitButtonX = width/2 - submitButtonWidth/2;
             const submitButtonY = height - submitButtonHeight - 40;
             
-            // Draw button shadow
-            fill(0, 150, 0);
-            noStroke();
-            rect(submitButtonX + 2, submitButtonY + 2, submitButtonWidth, submitButtonHeight, 10);
-            
-            // Draw button
             fill(0, 200, 0);
             rect(submitButtonX, submitButtonY, submitButtonWidth, submitButtonHeight, 10);
             fill(255);
             textSize(28);
             text("SUBMIT", width/2, submitButtonY + submitButtonHeight/2);
             
-            // Update submit button hitbox
             submitButton = {
                 x: submitButtonX,
                 y: submitButtonY,
@@ -438,68 +773,252 @@ function draw() {
             };
         } else {
             textSize(24);
+            fill(0);
             text("Press ENTER when done", width/2, height/2 + 50);
         }
-    } else {
-        // Draw game over and high scores screen
-        fill(0);
-        textSize(48);
-        textAlign(CENTER, CENTER);
-        text("GAME OVER", width/2, height/2 - 200);
-        textSize(24);
-        text(`You survived for ${timeSurvived.toFixed(1)} seconds`, width/2, height/2 - 150);
-        text(`Final hand count: ${hands.length}`, width/2, height/2 - 120);
-        
-        // Draw high scores
-        textSize(32);
-        text("TOP 5 HIGH SCORES", width/2, height/2 - 50);
-        textSize(24);
-        for (let i = 0; i < highScores.length; i++) {
-            let score = highScores[i];
-            text(`${i + 1}. ${score.initials}: ${score.time.toFixed(1)}s`, width/2, height/2 + (i * 30));
-        }
-        
-        text("Click to play again", width/2, height/2 + 200);
+    }
+    
+    // Draw login status last, so it's always on top
+    drawLoginStatus();
+}
+
+function drawLoginScreen() {
+    background(255);
+    
+    // Draw login form
+    fill(0);
+    textSize(32);
+    textAlign(CENTER, CENTER);
+    text(isRegistering ? "Create Account" : "Login", width/2, height/3 - 50);
+    
+    // Draw input boxes
+    const inputWidth = min(300, width * 0.8);
+    const inputHeight = 40;
+    const inputX = width/2 - inputWidth/2;
+    let inputY = height/3;
+    
+    // Email input
+    fill(255);
+    stroke(0);
+    rect(inputX, inputY, inputWidth, inputHeight, 5);
+    fill(0);
+    noStroke();
+    textSize(16);
+    textAlign(LEFT, CENTER);
+    text(loginEmail || "Email", inputX + 10, inputY + inputHeight/2);
+    
+    // Password input
+    inputY += inputHeight + 20;
+    fill(255);
+    stroke(0);
+    rect(inputX, inputY, inputWidth, inputHeight, 5);
+    fill(0);
+    noStroke();
+    text("*".repeat(loginPassword.length) || "Password", inputX + 10, inputY + inputHeight/2);
+    
+    // Login/Register button
+    inputY += inputHeight + 30;
+    const buttonWidth = inputWidth;
+    const buttonHeight = 40;
+    fill(0, 155, 0);
+    noStroke();
+    rect(inputX, inputY, buttonWidth, buttonHeight, 5);
+    fill(255);
+    textAlign(CENTER, CENTER);
+    text(isRegistering ? "Create Account" : "Login", width/2, inputY + buttonHeight/2);
+    
+    // Switch mode button
+    inputY += buttonHeight + 20;
+    fill(100);
+    textSize(14);
+    text(isRegistering ? "Already have an account? Login" : "Need an account? Register", width/2, inputY);
+    
+    // Show login message if any
+    if (loginMessage) {
+        fill(loginMessageColor);
+        textSize(16);
+        text(loginMessage, width/2, inputY + 30);
     }
 }
 
-function keyPressed() {
-    if (enteringInitials && !isMobile) {
+async function handleLogin() {
+    try {
+        const { data, error } = await window.supabase.auth.signInWithPassword({
+            email: loginEmail,
+            password: loginPassword
+        });
+        
+        if (error) throw error;
+        
+        isLoggedIn = true;
+        showLoginScreen = false;
+        loginMessage = "Login successful!";
+        loginMessageColor = color(0, 155, 0);
+        
+        // Load high scores after successful login
+        loadHighScores();
+    } catch (error) {
+        loginMessage = error.message;
+        loginMessageColor = color(255, 0, 0);
+    }
+}
+
+async function handleRegister() {
+    try {
+        const { data, error } = await window.supabase.auth.signUp({
+            email: loginEmail,
+            password: loginPassword
+        });
+        
+        if (error) throw error;
+        
+        loginMessage = "Registration successful! Please check your email to verify your account.";
+        loginMessageColor = color(0, 155, 0);
+        isRegistering = false;
+    } catch (error) {
+        loginMessage = error.message;
+        loginMessageColor = color(255, 0, 0);
+    }
+}
+
+function validateAndPreviewName(newName) {
+    const validation = validatePlayerName(newName);
+    if (!validation.valid) {
+        nameValidationMessage = validation.reason;
+        nameValidationColor = color(255, 0, 0); // Red for invalid
+    } else {
+        nameValidationMessage = 'Valid name!';
+        nameValidationColor = color(0, 155, 0); // Green for valid
+    }
+    
+    // Clear validation message after 2 seconds
+    if (namePreviewTimeout) clearTimeout(namePreviewTimeout);
+    namePreviewTimeout = setTimeout(() => {
+        nameValidationMessage = '';
+        nameValidationColor = color(0); // Back to black
+    }, 2000);
+    
+    return validation.valid;
+}
+
+async function keyPressed() {
+    if (enteringName && !isMobile) {
         if (keyCode === ENTER) {
-            if (playerInitials.length > 0) {
-                addHighScore(playerInitials, timeSurvived);
-                enteringInitials = false;
+            if (playerName.length > 0 && validateAndPreviewName(playerName)) {
+                const result = await saveHighScore(playerName, timeSurvived);
+                if (result.success) {
+                    console.log('High score saved!');
+                    await loadHighScores(); // Reload the scores
+                    enteringName = false;
+                    showingLeaderboard = true; // Show leaderboard instead of resetting
+                } else {
+                    nameValidationMessage = result.reason;
+                    nameValidationColor = color(255, 0, 0);
+                }
             }
         } else if (keyCode === BACKSPACE) {
-            playerInitials = playerInitials.slice(0, -1);
-        } else if (key.length === 1 && /[A-Za-z]/.test(key) && playerInitials.length < maxInitialsLength) {
-            playerInitials += key.toUpperCase();
+            playerName = playerName.slice(0, -1);
+            if (playerName.length > 0) {
+                validateAndPreviewName(playerName);
+            } else {
+                nameValidationMessage = '';
+                nameValidationColor = color(0);
+            }
+        } else if (key.length === 1 && /[A-Za-z0-9 ]/.test(key) && playerName.length < maxNameLength) {
+            const newName = playerName + key.toUpperCase();
+            validateAndPreviewName(newName);
+            playerName = newName;
         }
     }
 }
 
 function mousePressed() {
-    if (!isMobile) {  // Only handle mouse events on desktop
-        if (gameOver) {
-            if (!enteringInitials) {
-                resetGame();
-            }
-        } else {
-            targetX = mouseX;
-            targetY = mouseY;
+    if (showingLeaderboard) {
+        // Check if play again button is clicked
+        if (playAgainButton && 
+            mouseX >= playAgainButton.x && 
+            mouseX <= playAgainButton.x + playAgainButton.width &&
+            mouseY >= playAgainButton.y && 
+            mouseY <= playAgainButton.y + playAgainButton.height) {
+            showingLeaderboard = false;
+            resetGame();
         }
+        return;
+    }
+
+    if (showLoginScreen) {
+        const inputWidth = min(300, width * 0.8);
+        const inputHeight = 40;
+        const inputX = width/2 - inputWidth/2;
+        let inputY = height/3;
+        
+        // Check email input box
+        if (mouseX >= inputX && mouseX <= inputX + inputWidth &&
+            mouseY >= inputY && mouseY <= inputY + inputHeight) {
+            loginEmail = prompt("Enter email:") || loginEmail;
+            return;
+        }
+        
+        // Check password input box
+        inputY += inputHeight + 20;
+        if (mouseX >= inputX && mouseX <= inputX + inputWidth &&
+            mouseY >= inputY && mouseY <= inputY + inputHeight) {
+            loginPassword = prompt("Enter password:") || loginPassword;
+            return;
+        }
+        
+        // Check login/register button
+        inputY += inputHeight + 30;
+        if (mouseX >= inputX && mouseX <= inputX + inputWidth &&
+            mouseY >= inputY && mouseY <= inputY + 40) {
+            if (isRegistering) {
+                handleRegister();
+            } else {
+                handleLogin();
+            }
+            return;
+        }
+        
+        // Check switch mode button
+        inputY += 40 + 20;
+        const switchBtnWidth = 200;
+        if (mouseX >= width/2 - switchBtnWidth/2 && mouseX <= width/2 + switchBtnWidth/2 &&
+            mouseY >= inputY - 10 && mouseY <= inputY + 10) {
+            isRegistering = !isRegistering;
+            loginMessage = '';
+            return;
+        }
+        
+        return;
+    } else if (!gameStarted) {
+        // Check if play button is clicked
+        if (playButton && 
+            mouseX >= playButton.x && 
+            mouseX <= playButton.x + playButton.width &&
+            mouseY >= playButton.y && 
+            mouseY <= playButton.y + playButton.height) {
+            gameStarted = true;
+            gameOver = false;
+            enteringName = false;
+            showingLeaderboard = false;
+            resetGame();
+        }
+    } else if (!gameOver && !enteringName) {
+        // Move breasts to mouse position during game
+        targetX = mouseX;
+        targetY = mouseY;
     }
 }
 
 function resetGame() {
     gameOver = false;
-    enteringInitials = false;
+    enteringName = false;
+    showingLeaderboard = false;
     timeSurvived = 0;
     score = 0;
     hands = [];
     lastHandSpawnTime = 0;
     handSpawnInterval = 5;
-    gameStartTime = millis() / 1000; // Reset game start time
     for (let i = 0; i < 5; i++) {
         hands.push(new Hand());
     }
@@ -510,4 +1029,32 @@ function moveTarget() {
     // Move target to random position, keeping it fully within canvas
     targetX = random(targetSize, width - targetSize);
     targetY = random(targetSize, height - targetSize);
+}
+
+// Add new function to handle game over state
+async function handleGameOver() {
+    gameOver = true;
+    const isHighScore = await checkHighScore(timeSurvived);
+    if (isHighScore) {
+        enteringName = true;
+        playerName = '';
+    } else {
+        showingLeaderboard = true;
+        await loadHighScores();
+    }
+}
+
+// Function to update auth state consistently
+function updateAuthState(session) {
+    if (session) {
+        isLoggedIn = true;
+        showLoginScreen = false;
+        loginEmail = session.user.email;
+        console.log('Logged in as:', loginEmail);
+    } else {
+        isLoggedIn = false;
+        showLoginScreen = true;
+        loginEmail = '';
+        console.log('Not logged in');
+    }
 }
