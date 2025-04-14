@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Breast Protector Game</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body {
             margin: 0;
@@ -79,6 +80,23 @@
     </style>
 </head>
 <body>
+    <script>
+        console.log('Page loading started');
+        window.addEventListener('load', () => {
+            console.log('Window load complete');
+        });
+        window.onerror = function(msg, url, lineNo, columnNo, error) {
+            console.error('Global error:', { msg, url, lineNo, columnNo, error });
+            return false;
+        };
+
+        // Initialize Supabase
+        const SUPABASE_URL = 'https://yzfvtzidzszdbsoxiduy.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6ZnZ0emlkenN6ZGJzb3hpZHV5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDk4NTI5NzAsImV4cCI6MjAyNTQyODk3MH0.Uh_BF5RoV_lHvXRqOO4ehQFXGnzNfvYiODK9dPIEbrE';
+        window.supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        console.log('Supabase initialized');
+    </script>
+
     <div id="authOverlay">
         <div id="loginForm">
             <input type="email" id="email" placeholder="Email">
@@ -91,6 +109,10 @@
             <button id="logoutButton">Logout</button>
         </div>
     </div>
+
+    <!-- Load core modules -->
+    <script type="module" src="src/shared/config/config.js"></script>
+    <script type="module" src="src/core/auth/auth.js"></script>
 
     <!-- Load game -->
     <script type="module">

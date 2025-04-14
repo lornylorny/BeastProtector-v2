@@ -160,7 +160,7 @@ export class BreastProtector extends BaseProtector {
     preload() {
         super.preload();
         console.log('[Preload] Starting preload...');
-        this.handImage = this.p.loadImage('/original/images/hand.png', 
+        this.handImage = this.p.loadImage('/src/games/breast-protector/assets/images/hand.png', 
             (img) => { 
                 console.log('[Preload Callback] Success callback: Image loaded. Dimensions:', img.width, 'x', img.height);
                 this.imageLoaded = true;
