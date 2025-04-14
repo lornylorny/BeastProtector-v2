@@ -52,6 +52,8 @@ GRANT SELECT ON leaderboard TO authenticated;
 GRANT INSERT ON leaderboard TO authenticated;
 GRANT UPDATE ON leaderboard TO authenticated;
 GRANT DELETE ON leaderboard TO authenticated;
+-- Grant public read access for anonymous users
+GRANT SELECT ON leaderboard TO anon;
 
 -- Drop existing primary key constraint if it exists
 DO $$

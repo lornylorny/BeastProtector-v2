@@ -43,24 +43,7 @@ function preload() {
 // Load high scores from Supabase
 async function loadHighScores() {
     try {
-        const { data, error } = await window.supabase
-            .from('leaderboard')
-            .select('user_id, high_score, last_updated, player_name, game_id')
-            .eq('game_id', 'breast_protector')
-            .order('high_score', { ascending: false })
-            .limit(10);
-
-        if (error) {
-            console.log('Error loading high scores:', error);
-            return;
-        }
-
-        highScores = data.map(score => ({
-            score: score.high_score / 10, // Convert back to float
-            name: score.player_name,
-            date: new Date(score.last_updated)
-        }));
-
+        highScores = await window.gameConfig.loadGameHighScores(window.gameConfig.GAME_IDS.BREAST_PROTECTOR);
         console.log('Loaded high scores:', highScores);
     } catch (error) {
         console.error('Error loading high scores:', error);
@@ -68,107 +51,21 @@ async function loadHighScores() {
 }
 
 // Save high score to Supabase
-async function saveHighScore(name, score) {
-    try {
-        const { data: { session } } = await window.supabase.auth.getSession();
-        if (!session) {
-            return { success: false, reason: 'Must be logged in to save high score' };
-        }
-
-        // Convert score to integer (multiply by 10 to keep one decimal place)
-        const intScore = Math.round(score * 10);
-
-        try {
-            // First get user's current top 3 scores
-            const { data: existingScores, error: fetchError } = await window.supabase
-                .from('leaderboard')
-                .select('*')
-                .eq('user_id', session.user.id)
-                .eq('game_id', 'breast_protector')
-                .order('high_score', { ascending: false })
-                .limit(3);
-
-            if (fetchError) {
-                console.log('Error checking existing scores:', fetchError);
-                throw fetchError;
-            }
-
-            // Get the latest active payment if available
-            const { data: payments, error: paymentError } = await window.supabase
-                .from('payments')
-                .select('id')
-                .eq('user_id', session.user.id)
-                .gt('plays_remaining', 0)
-                .order('created_at', { ascending: false })
-                .limit(1);
-
-            if (paymentError) {
-                console.log('Error checking payment:', paymentError);
-            }
-
-            const payment = payments && payments.length > 0 ? payments[0] : null;
-
-            const scoreData = {
-                user_id: session.user.id,
-                game_id: 'breast_protector',
-                player_name: name,
-                high_score: intScore,
-                last_updated: new Date().toISOString(),
-                payment_id: payment?.id || null
-            };
-
-            console.log('Attempting to save score with data:', scoreData);
-
-            let result;
-            if (existingScores && existingScores.length >= 3) {
-                // If user has 3 scores, check if new score beats the lowest
-                const lowestScore = existingScores[existingScores.length - 1].high_score;
-                if (intScore <= lowestScore) {
-                    return { success: false, reason: 'Score not high enough to beat your previous record!' };
-                }
-                
-                // Delete the lowest score first
-                const { error: deleteError } = await window.supabase
-                    .from('leaderboard')
-                    .delete()
-                    .eq('id', existingScores[existingScores.length - 1].id);
-
-                if (deleteError) {
-                    console.log('Error deleting lowest score:', deleteError);
-                    throw deleteError;
-                }
-            }
-
-            // Insert new score
-            const { data, error: insertError } = await window.supabase
-                .from('leaderboard')
-                .insert([scoreData]);
-
-            if (insertError) {
-                console.log('Error inserting new score:', insertError);
-                throw insertError;
-            }
-
-            result = { data, error: null };
-
-            if (result.error) {
-                console.log('Error saving score:', result.error);
-                throw result.error;
-            }
-            console.log('Score saved successfully:', result.data);
-
-            // Reload high scores after successful save
-            await loadHighScores();
-
-            return { success: true, reason: '' };
-        } catch (dbError) {
-            console.error('Database operation failed:', dbError);
-            throw dbError;
-        }
-    } catch (error) {
-        console.error('Error saving high score:', error.message);
-        return { success: false, reason: 'Failed to save score: ' + error.message };
+async function saveHighScore(name) {
+    const result = await window.gameConfig.saveGameHighScore(
+        window.gameConfig.GAME_IDS.BREAST_PROTECTOR,
+        name,
+        timeSurvived
+    );
+    
+    if (result.success) {
+        await loadHighScores();
+        showingLeaderboard = true;
+    } else {
+        console.error('Failed to save score:', result.reason);
     }
+    
+    return result;
 }
 
 // Check if score qualifies for user's top 3 scores
@@ -213,7 +110,7 @@ async function checkHighScore(time) {
 
 // Update addHighScore function to use Supabase directly
 async function addHighScore(name, time) {
-    const result = await saveHighScore(name, time);
+    const result = await saveHighScore(name);
     if (result.success) {
         await loadHighScores();
     } else {
@@ -472,7 +369,7 @@ function touchStarted() {
                 touchX >= submitButton.x && touchX <= submitButton.x + submitButton.width &&
                 touchY >= submitButton.y && touchY <= submitButton.y + submitButton.height) {
                 if (playerName.length > 0 && validateAndPreviewName(playerName)) {
-                    saveHighScore(playerName, timeSurvived).then(result => {
+                    saveHighScore(playerName).then(result => {
                         if (result.success) {
                             loadHighScores();
                             enteringName = false;
@@ -905,7 +802,7 @@ async function keyPressed() {
     if (enteringName && !isMobile) {
         if (keyCode === ENTER) {
             if (playerName.length > 0 && validateAndPreviewName(playerName)) {
-                const result = await saveHighScore(playerName, timeSurvived);
+                const result = await saveHighScore(playerName);
                 if (result.success) {
                     console.log('High score saved!');
                     await loadHighScores(); // Reload the scores

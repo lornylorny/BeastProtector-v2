@@ -3,62 +3,78 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Breast Protection Game</title>
+    <title>Breast Protector Game</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body {
             margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
+            padding: 0;
+            overflow: hidden;
             background-color: #f0f0f0;
-            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+            position: relative;
+            z-index: 1;
         }
         #authOverlay {
             position: fixed;
-            top: 10px;
-            right: 10px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 10px;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 1);
+            padding: 15px;
             border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            z-index: 1000;
-            font-size: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            z-index: 9999;
+            font-size: 16px;
+            min-width: 250px;
+            border: 2px solid #4CAF50;
         }
         #authOverlay input {
             display: block;
-            margin: 5px 0;
-            padding: 5px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            width: 150px;
-            font-size: 12px;
+            margin: 8px 0;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            width: 100%;
+            font-size: 16px;
+            box-sizing: border-box;
         }
         #authOverlay button {
             background: #4CAF50;
             color: white;
             border: none;
-            padding: 5px 10px;
-            border-radius: 4px;
+            padding: 12px 20px;
+            border-radius: 6px;
             cursor: pointer;
-            margin: 2px;
-            font-size: 12px;
+            margin: 5px 0;
+            font-size: 16px;
+            width: 100%;
+            font-weight: bold;
+            text-transform: uppercase;
         }
         #authOverlay button:hover {
             background: #45a049;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
         #userInfo {
             display: none;
-            margin-top: 5px;
-            padding: 5px;
+            margin-top: 10px;
+            padding: 12px;
             background: #e8f5e9;
-            border-radius: 4px;
-            font-size: 10px;
+            border-radius: 6px;
+            font-size: 16px;
+            text-align: center;
+            border: 2px solid #2E7D32;
         }
-        canvas {
-            border: 1px solid #ccc;
+        #userEmail {
+            display: block;
+            margin-bottom: 12px;
+            font-weight: bold;
+            color: #2E7D32;
+            font-size: 18px;
+            word-break: break-all;
         }
     </style>
 </head>
@@ -67,50 +83,129 @@
         <div id="loginForm">
             <input type="email" id="email" placeholder="Email">
             <input type="password" id="password" placeholder="Password">
-            <button onclick="handleLogin()">Login</button>
-            <button onclick="handleSignup()">Sign Up</button>
+            <button id="loginButton">Login</button>
+            <button id="signupButton">Sign Up</button>
         </div>
         <div id="userInfo">
             <span id="userEmail"></span>
-            <button onclick="handleLogout()">Logout</button>
+            <button id="logoutButton">Logout</button>
         </div>
     </div>
 
-    <script>
-        // Initialize Supabase
-        const supabaseUrl = 'https://yzfvtzidzszdbsoxiduy.supabase.co';
-        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6ZnZ0emlkenN6ZGJzb3hpZHV5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ0Nzg0MjYsImV4cCI6MjA2MDA1NDQyNn0.FbgXJGlD40qcDnzfg18tuH4SJvPRufb4mdiNDa3dLLg';
-        window.supabase = supabase.createClient(supabaseUrl, supabaseKey);
+    <!-- Load game -->
+    <script type="module">
+        console.log('Game module script starting');
+        
+        import { initAuth } from '/src/core/auth/auth.js';
+        import { gameConfig } from '/src/shared/config/config.js';
+        import { BreastProtector } from '/src/games/breast-protector/BreastProtector.js';
+        
+        // Initialize auth after DOM is loaded
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM loaded, initializing auth...');
+            initAuth();
+        });
+        
+        console.log('BreastProtector class imported');
 
-        // Check initial auth state
-        window.supabase.auth.getSession().then(({ data: { session } }) => {
-            updateAuthUI(session?.user);
+        // Create new p5 instance
+        new p5((p) => {
+            console.log('p5 instance created');
+            let game;
+
+            p.setup = function() {
+                console.log('p5 setup starting');
+                p.createCanvas(p.windowWidth, p.windowHeight);
+                game = new BreastProtector({
+                    p: p,
+                    width: p.windowWidth,
+                    height: p.windowHeight
+                });
+                game.setup();
+                console.log('p5 setup complete');
+            };
+
+            p.draw = function() {
+                game.update();
+                game.draw();
+            };
+
+            p.mousePressed = function() {
+                game.mousePressed();
+            };
+
+            p.mouseMoved = function() {
+                game.mouseMoved();
+            };
+
+            p.keyPressed = function() {
+                game.keyPressed();
+            };
+
+            p.windowResized = function() {
+                p.resizeCanvas(p.windowWidth, p.windowHeight);
+                game.width = p.windowWidth;
+                game.height = p.windowHeight;
+            };
+
+            // Make p5 instance available globally
+            window.p5Instance = p;
+            console.log('p5 instance setup complete');
         });
 
-        // Listen for auth changes
-        window.supabase.auth.onAuthStateChange((event, session) => {
-            updateAuthUI(session?.user);
+        // Make p5.js functions and variables available globally
+        console.log('Setting up global p5 functions');
+        Object.defineProperties(window, {
+            mouseX: { get: () => window.p5Instance?.mouseX ?? 0 },
+            mouseY: { get: () => window.p5Instance?.mouseY ?? 0 },
+            width: { get: () => window.p5Instance?.width ?? 0 },
+            height: { get: () => window.p5Instance?.height ?? 0 },
+            frameCount: { get: () => window.p5Instance?.frameCount ?? 0 },
+            deltaTime: { get: () => window.p5Instance?.deltaTime ?? 0 },
+            millis: { value: () => window.p5Instance?.millis() ?? 0 },
+            key: { get: () => window.p5Instance?.key ?? '' },
+            keyCode: { get: () => window.p5Instance?.keyCode ?? 0 },
+            PI: { value: Math.PI },
+            TWO_PI: { value: Math.PI * 2 },
+            random: { value: (...args) => window.p5Instance?.random(...args) ?? 0 },
+            color: { value: (...args) => window.p5Instance?.color(...args) },
+            fill: { value: (...args) => window.p5Instance?.fill(...args) },
+            stroke: { value: (...args) => window.p5Instance?.stroke(...args) },
+            noStroke: { value: () => window.p5Instance?.noStroke() },
+            rect: { value: (...args) => window.p5Instance?.rect(...args) },
+            rectMode: { value: (...args) => window.p5Instance?.rectMode(...args) },
+            ellipse: { value: (...args) => window.p5Instance?.ellipse(...args) },
+            circle: { value: (...args) => window.p5Instance?.circle(...args) },
+            line: { value: (...args) => window.p5Instance?.line(...args) },
+            text: { value: (...args) => window.p5Instance?.text(...args) },
+            textSize: { value: (...args) => window.p5Instance?.textSize(...args) },
+            textAlign: { value: (...args) => window.p5Instance?.textAlign(...args) },
+            push: { value: () => window.p5Instance?.push() },
+            pop: { value: () => window.p5Instance?.pop() },
+            translate: { value: (...args) => window.p5Instance?.translate(...args) },
+            rotate: { value: (...args) => window.p5Instance?.rotate(...args) },
+            map: { value: (...args) => window.p5Instance?.map(...args) },
+            constrain: { value: (...args) => window.p5Instance?.constrain(...args) },
+            dist: { value: (...args) => window.p5Instance?.dist(...args) },
+            cos: { value: Math.cos },
+            sin: { value: Math.sin },
+            max: { value: (...args) => window.p5Instance?.max(...args) ?? Math.max(...args) },
+            min: { value: (...args) => window.p5Instance?.min(...args) ?? Math.min(...args) },
+            background: { value: (...args) => window.p5Instance?.background(...args) },
+            // Text alignment constants
+            LEFT: { value: window.p5Instance?.LEFT ?? 'left' },
+            RIGHT: { value: window.p5Instance?.RIGHT ?? 'right' },
+            CENTER: { value: window.p5Instance?.CENTER ?? 'center' },
+            TOP: { value: window.p5Instance?.TOP ?? 'top' },
+            BOTTOM: { value: window.p5Instance?.BOTTOM ?? 'bottom' },
+            // Rectangle modes
+            CORNER: { value: window.p5Instance?.CORNER ?? 'corner' },
+            CORNERS: { value: window.p5Instance?.CORNERS ?? 'corners' },
+            // Key codes
+            ENTER: { value: 13 },
+            BACKSPACE: { value: 8 }
         });
-
-        function updateAuthUI(user) {
-            const loginForm = document.getElementById('loginForm');
-            const userInfo = document.getElementById('userInfo');
-            const userEmail = document.getElementById('userEmail');
-            
-            if (user) {
-                loginForm.style.display = 'none';
-                userInfo.style.display = 'block';
-                userEmail.textContent = user.email;
-            } else {
-                loginForm.style.display = 'block';
-                userInfo.style.display = 'none';
-                userEmail.textContent = '';
-            }
-        }
+        console.log('Global p5 functions setup complete');
     </script>
-
-    <script src="config.js"></script>
-    <script src="auth.js"></script>
-    <script src="sketch.js"></script>
 </body>
 </html>
